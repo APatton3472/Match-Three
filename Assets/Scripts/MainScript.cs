@@ -1,6 +1,7 @@
 ﻿using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 
 public class MainScript : MonoBehaviour
 {
@@ -17,17 +18,23 @@ public class MainScript : MonoBehaviour
     int width=20;
     int height = 12;
     Node[,] board;
-
+    
     List<NodePiece> update;
-
+    List<FlippedPieces> flipped;
+    List<NodePiece> dead;
     System.Random random;
+    
+
+   
     void Start()
     {
         StartGame();
+        ScoreDisplay.Score = 0;
     }
 
     void Update()
     {
+        
         List<NodePiece> finishedUpdating = new List<NodePiece>();
         for(int i = 0; i < update.Count; i++)
         {
@@ -40,8 +47,122 @@ public class MainScript : MonoBehaviour
         for (int i = 0; i <finishedUpdating.Count; i++)
         {
             NodePiece piece = finishedUpdating[i];
+            FlippedPieces flip = getFlipped(piece);
+            NodePiece flippedPiece = null;
+            
+
+            List<Point> connected = isConnected(piece.index, true);
+            bool wasFlipped = (flip != null);
+
+            if (wasFlipped)
+            {
+                flippedPiece = flip.getOtherPiece(piece);
+                AddPoints(ref connected, isConnected(flippedPiece.index, true));
+                
+            }
+            if (connected.Count == 0)
+            {
+                if (wasFlipped)
+                    FlipPieces(piece.index, flippedPiece.index ,false);
+            }
+            else
+            {
+                foreach(Point pnt in connected)
+                {
+                    ScoreDisplay.Score += 100;
+                    Node node = getNodeatPoint(pnt);
+                    NodePiece piece1 = node.getPiece();
+                    if (piece1 != null)
+                    {
+                        piece1.gameObject.SetActive(false);
+                        dead.Add(piece1);
+                    }
+                    node.SetPiece(null);
+                }
+                ApplyGravityToBoard();
+            }
+            flipped.Remove(flip);
             update.Remove(piece);
         }
+        
+    }
+
+    void ApplyGravityToBoard()
+    {
+        for(int x = 0; x < width; x++)
+        {
+            for(int y = (height - 1); y >= 0; y--)
+            {
+                Point p = new Point(x, y);
+                Node node = getNodeatPoint(p);
+                int val = getValueatPoint(p);
+                if (val != 0) continue;
+                for(int ny = (y - 1); ny >= -1; ny--)
+                {
+                    Point next = new Point(x, ny);
+                    int nextVal = getValueatPoint(next);
+                    if (nextVal == 0)
+                        continue;
+                    if (nextVal != -1)
+                    {
+                        Node got = getNodeatPoint(next);
+                        NodePiece piece = got.getPiece();
+
+                        node.SetPiece(piece);
+                        update.Add(piece);
+
+                        got.SetPiece(null);
+                    }
+                    else
+                    {
+                        int newVal = fillPiece();
+                        NodePiece piece;
+                        Point fallPnt = new Point(x, -1);
+                        if (dead.Count > 0)
+                        {
+                            NodePiece revived = dead[0];
+                            revived.gameObject.SetActive(true);
+                            revived.rect.anchoredPosition = getPointPosition(new Point(x, -1));
+                            piece = revived;
+
+
+                            
+                            dead.RemoveAt(0);
+                        }
+                        else
+                        {
+                            GameObject obj = Instantiate(nodePiece, gameBoard);
+                            NodePiece n = obj.GetComponent<NodePiece>();
+                            RectTransform rect = obj.GetComponent<RectTransform>();
+                            rect.anchoredPosition = getPointPosition(new Point(x, -1));
+                            piece = n;
+                             
+                        }
+                        piece.Initialize(newVal, p, pieces[newVal - 1]);
+                        Node hole = getNodeatPoint(p);
+                        hole.SetPiece(piece);
+                        ResetPiece(piece);
+                    }
+                    break;
+                }
+            }
+        }
+    }
+    
+    FlippedPieces getFlipped(NodePiece p)
+    {
+        FlippedPieces flip = null;
+        for (int i = 0; i < flipped.Count; i++)
+        {
+
+            if (flipped[i].getOtherPiece(p) != null) 
+            {
+                flip = flipped[i];
+                break;
+            }
+                
+        }
+        return flip;
     }
 
     void StartGame()
@@ -49,7 +170,8 @@ public class MainScript : MonoBehaviour
         string seed = getRandomSeed();
         random = new System.Random(seed.GetHashCode());
         update = new List<NodePiece>();
-        
+        flipped = new List<FlippedPieces>();
+        dead = new List<NodePiece>();
         InitializeBoard();
         VerifyBoard();
         InstantiateBoard();
@@ -118,31 +240,38 @@ public class MainScript : MonoBehaviour
     public void ResetPiece(NodePiece piece)
     {
         piece.ResetPosition();
-        piece.flipped = null;
         update.Add(piece);
     }
+    
 
-    public void FlipPieces(Point one,Point two)
+    public void FlipPieces(Point one,Point two,bool main)
     {
         if (getValueatPoint(one) < 0) return;
+
         Node nodeOne = getNodeatPoint(one);
         NodePiece pieceOne = nodeOne.getPiece();
+        
+
         if (getValueatPoint(two) > 0)
         {
             Node nodeTwo = getNodeatPoint(two);
             NodePiece pieceTwo = nodeTwo.getPiece();
-            nodeOne.SetPiece(pieceTwo);
-            nodeTwo.SetPiece(pieceOne);
 
-            pieceOne.flipped = pieceTwo;
-            pieceTwo.flipped = pieceOne;
+            nodeTwo.SetPiece(pieceOne);
+            nodeOne.SetPiece(pieceTwo);
+            
+
+            if(main)
+                flipped.Add(new FlippedPieces(pieceOne, pieceTwo));
 
             update.Add(pieceOne);
             update.Add(pieceTwo);
+            
         }
         else
         {
             ResetPiece(pieceOne);
+            
         }
     }
 
@@ -234,10 +363,7 @@ public class MainScript : MonoBehaviour
                 AddPoints(ref connected,isConnected(connected[i],false));
             }
         }
-        if (connected.Count > 0)
-        {
-            connected.Add(p);
-        }
+        
 
         return connected;
     }
@@ -341,5 +467,28 @@ public class Node
     public NodePiece getPiece()
     {
         return piece;
+    }
+}
+
+[System.Serializable]
+public class FlippedPieces
+{
+    public NodePiece one;
+    public NodePiece two;
+
+    public FlippedPieces(NodePiece o,NodePiece t)
+    {
+        one = o;
+        two = t;
+    }
+
+    public NodePiece getOtherPiece(NodePiece p)
+    {
+        if (p == one)
+            return two;
+        else if (p == two)
+            return one;
+        else
+            return null;
     }
 }

@@ -70,7 +70,7 @@ public class MovePieces : MonoBehaviour
         }
         if (!newIndex.Equals(moving.index))
         {
-            game.FlipPieces(moving.index, newIndex);
+            game.FlipPieces(moving.index, newIndex,true);
         }
         else
         {
